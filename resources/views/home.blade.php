@@ -20,7 +20,7 @@
                 <h1 class="display-5 fw-bold mb-3">FuelMate</h1>
                 <p class="lead mb-0">
                     Predict fuel usage and trip cost for motorcycles and cars using a real, beginner-friendly
-                    multiple linear regression model.
+                    multiple linear regression model with interaction-aware smarter predictions.
                 </p>
             </div>
             <div class="col-lg-5">
@@ -30,6 +30,7 @@
                         <li>No database required</li>
                         <li>Hardcoded sample dataset</li>
                         <li>Visible regression math in PHP</li>
+                        <li>Confidence range + model quality metrics</li>
                     </ul>
                 </div>
             </div>
@@ -161,13 +162,63 @@
                         <p class="h3 mb-0">PHP {{ number_format($result['trip_cost'], 2) }}</p>
                     </div>
                 </div>
+                <div class="col-md-6">
+                    <div class="metric-box p-3">
+                        <p class="text-muted mb-1">{{ $result['fuel_range']['confidence'] }}% Likely Fuel Range</p>
+                        <p class="h5 mb-0">
+                            {{ number_format($result['fuel_range']['min'], 2) }} L
+                            to
+                            {{ number_format($result['fuel_range']['max'], 2) }} L
+                        </p>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="metric-box p-3">
+                        <p class="text-muted mb-1">Estimated Efficiency</p>
+                        <p class="h5 mb-0">{{ number_format($result['efficiency_kmpl'], 2) }} km/L</p>
+                    </div>
+                </div>
             </div>
             <div class="mt-4">
                 <h3 class="h6 text-uppercase text-muted">Interpretation</h3>
                 <p class="mb-0">{{ $result['interpretation'] }}</p>
             </div>
+            @if (!empty($result['tips']))
+                <div class="mt-4">
+                    <h3 class="h6 text-uppercase text-muted">Smart Tips</h3>
+                    <ul class="mb-0 ps-3">
+                        @foreach ($result['tips'] as $tip)
+                            <li>{{ $tip }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
         </section>
     @endif
+
+    <section class="content-card p-4 p-md-5 mb-4">
+        <h2 class="h4 mb-3">Model Quality</h2>
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="coefficient-box">
+                    <strong>R²:</strong> {{ number_format($metrics['r2'] * 100, 2) }}%
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="coefficient-box">
+                    <strong>RMSE:</strong> {{ number_format($metrics['rmse'], 3) }} L
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="coefficient-box">
+                    <strong>MAE:</strong> {{ number_format($metrics['mae'], 3) }} L
+                </div>
+            </div>
+        </div>
+        <p class="text-muted mt-3 mb-0">
+            Higher R² and lower RMSE / MAE generally indicate better fit on the sample dataset.
+        </p>
+    </section>
 
     <section class="content-card p-4 p-md-5 mb-4">
         <h2 class="h4 mb-3">Sample Dataset (Hardcoded in PHP)</h2>
@@ -203,10 +254,11 @@
     <section class="content-card p-4 p-md-5">
         <h2 class="h4 mb-3">How Linear Regression Works</h2>
         <p>
-            FuelMate uses multiple linear regression with this formula:
+            FuelMate uses multiple linear regression with engineered features:
         </p>
         <p class="formula-box">
             Fuel = b0 + b1(distance) + b2(speed) + b3(traffic) + b4(vehicle_flag)
+            + b5(distance×traffic) + b6(speed×traffic) + b7(distance×vehicle_flag) + b8(traffic×vehicle_flag)
         </p>
         <p>
             The coefficients are computed in PHP using matrix operations and the normal equation:
@@ -215,31 +267,13 @@
         </p>
 
         <div class="row g-3 mt-1">
-            <div class="col-md-6 col-lg-4">
-                <div class="coefficient-box">
-                    <strong>b0 (Intercept):</strong> {{ number_format($coefficients[0], 6) }}
+            @foreach ($featureLabels as $index => $label)
+                <div class="col-md-6 col-lg-4">
+                    <div class="coefficient-box">
+                        <strong>b{{ $index }} ({{ $label }}):</strong> {{ number_format($coefficients[$index], 6) }}
+                    </div>
                 </div>
-            </div>
-            <div class="col-md-6 col-lg-4">
-                <div class="coefficient-box">
-                    <strong>b1 (Distance):</strong> {{ number_format($coefficients[1], 6) }}
-                </div>
-            </div>
-            <div class="col-md-6 col-lg-4">
-                <div class="coefficient-box">
-                    <strong>b2 (Speed):</strong> {{ number_format($coefficients[2], 6) }}
-                </div>
-            </div>
-            <div class="col-md-6 col-lg-4">
-                <div class="coefficient-box">
-                    <strong>b3 (Traffic):</strong> {{ number_format($coefficients[3], 6) }}
-                </div>
-            </div>
-            <div class="col-md-6 col-lg-4">
-                <div class="coefficient-box">
-                    <strong>b4 (Vehicle Flag):</strong> {{ number_format($coefficients[4], 6) }}
-                </div>
-            </div>
+            @endforeach
         </div>
     </section>
 </div>
