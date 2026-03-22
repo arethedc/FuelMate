@@ -97,9 +97,9 @@ return [
 
     'cipher' => 'AES-256-CBC',
 
-    // Fallback key prevents startup failure when APP_KEY is not injected by the host.
+    // Fallback key prevents startup failure when APP_KEY is missing or blank.
     // For production security, still set APP_KEY explicitly in environment variables.
-    'key' => env('APP_KEY', 'base64:CafgimLo+9fMvX42Ueu2d/EYPy3CX45hpcRk1p9LQ/s='),
+    'key' => env('APP_KEY') ?: 'base64:CafgimLo+9fMvX42Ueu2d/EYPy3CX45hpcRk1p9LQ/s=',
 
     'previous_keys' => [
         ...array_filter(

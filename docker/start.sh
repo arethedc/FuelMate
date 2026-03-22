@@ -34,6 +34,9 @@ export APP_KEY
 : "${QUEUE_CONNECTION:=sync}"
 export SESSION_DRIVER CACHE_STORE QUEUE_CONNECTION
 
+# Avoid stale cached config from previous builds.
+php artisan config:clear --ansi --no-interaction
+
 # Ensure package discovery exists even when composer scripts were skipped.
 php artisan package:discover --ansi --no-interaction
 
