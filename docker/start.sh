@@ -28,11 +28,15 @@ if [ -z "${APP_KEY:-}" ]; then
 fi
 export APP_KEY
 
-# Keep this project no-database friendly by default.
-: "${SESSION_DRIVER:=file}"
-: "${CACHE_STORE:=file}"
-: "${QUEUE_CONNECTION:=sync}"
+# Keep this project strictly no-database at runtime.
+SESSION_DRIVER="file"
+CACHE_STORE="file"
+QUEUE_CONNECTION="sync"
 export SESSION_DRIVER CACHE_STORE QUEUE_CONNECTION
+
+# Safety net: create sqlite file in case any package still touches DB connection.
+mkdir -p database
+touch database/database.sqlite
 
 # Avoid stale cached config from previous builds.
 php artisan config:clear --ansi --no-interaction
