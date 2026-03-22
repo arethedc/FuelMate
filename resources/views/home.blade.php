@@ -11,6 +11,8 @@
         'fuel_price' => old('fuel_price', $result['input']['fuel_price'] ?? ''),
         'vehicle_type' => old('vehicle_type', $result['input']['vehicle_type'] ?? ''),
     ];
+
+    $activeVehicle = $result['input']['vehicle_type'] ?? ($modelInfo['vehicle_type'] ?? 'motorcycle');
 @endphp
 
 <div class="hero-section py-5">
@@ -19,18 +21,16 @@
             <div class="col-lg-7">
                 <h1 class="display-5 fw-bold mb-3">FuelMate</h1>
                 <p class="lead mb-0">
-                    Predict fuel usage and trip cost for motorcycles and cars using a real, beginner-friendly
-                    multiple linear regression model with interaction-aware smarter predictions.
+                    Estimate fuel usage and trip cost in a simple, practical way using linear regression.
                 </p>
             </div>
             <div class="col-lg-5">
                 <div class="stat-card p-4">
-                    <h2 class="h5 mb-3">Quick Overview</h2>
+                    <h2 class="h5 mb-3">What You Get</h2>
                     <ul class="mb-0 ps-3">
-                        <li>No database required</li>
-                        <li>Hardcoded sample dataset</li>
-                        <li>Visible regression math in PHP</li>
-                        <li>Confidence range + model quality metrics</li>
+                        <li>Fuel estimate in liters</li>
+                        <li>Total trip cost in pesos</li>
+                        <li>Live trip history after each prediction</li>
                     </ul>
                 </div>
             </div>
@@ -40,16 +40,70 @@
 
 <div class="container pb-5">
     <section class="content-card p-4 p-md-5 mb-4">
-        <h2 class="h4 mb-3">About the System</h2>
+        <h2 class="h4 mb-3">About FuelMate</h2>
         <p class="mb-0">
-            FuelMate is an educational predictor that estimates how many liters you may consume on a trip and how much
-            it may cost in pesos. It uses distance, average speed, traffic level, and vehicle type to generate a
-            prediction through linear regression.
+            FuelMate uses distance, speed, traffic, and vehicle type to estimate fuel consumption. The model is built with
+            linear regression so each input has a measurable effect on the final prediction.
         </p>
     </section>
 
     <section class="content-card p-4 p-md-5 mb-4">
-        <h2 class="h4 mb-3">Predictor Form</h2>
+        <h2 class="h4 mb-3">How Linear Regression Is Used</h2>
+        <div class="row g-3 mb-3">
+            <div class="col-md-4">
+                <div class="coefficient-box h-100">
+                    <strong>Step 1</strong>
+                    <p class="mb-0 mt-2">Reference trips are used to train the model for each vehicle type.</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="coefficient-box h-100">
+                    <strong>Step 2</strong>
+                    <p class="mb-0 mt-2">The model learns coefficients for distance, speed, and traffic.</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="coefficient-box h-100">
+                    <strong>Step 3</strong>
+                    <p class="mb-0 mt-2">Your inputs are applied to the equation to produce the trip estimate.</p>
+                </div>
+            </div>
+        </div>
+
+        <p class="formula-box mb-3">
+            Fuel = b0 + b1(distance) + b2(speed) + b3(traffic)
+        </p>
+
+        <p class="text-muted mb-2">
+            Current model shown for: <strong>{{ ucfirst($activeVehicle) }}</strong>
+        </p>
+
+        <div class="row g-3">
+            @foreach ($modelInfo['feature_labels'] as $index => $label)
+                <div class="col-md-6 col-lg-3">
+                    <div class="coefficient-box">
+                        <strong>{{ $label }}:</strong><br>
+                        {{ number_format($modelInfo['coefficients'][$index], 6) }}
+                    </div>
+                </div>
+            @endforeach
+        </div>
+
+        <div class="row g-3 mt-1">
+            <div class="col-md-4">
+                <div class="coefficient-box"><strong>R2:</strong> {{ number_format($modelInfo['metrics']['r2'] * 100, 2) }}%</div>
+            </div>
+            <div class="col-md-4">
+                <div class="coefficient-box"><strong>RMSE:</strong> {{ number_format($modelInfo['metrics']['rmse'], 3) }} L</div>
+            </div>
+            <div class="col-md-4">
+                <div class="coefficient-box"><strong>MAE:</strong> {{ number_format($modelInfo['metrics']['mae'], 3) }} L</div>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-card p-4 p-md-5 mb-4">
+        <h2 class="h4 mb-3">Trip Predictor</h2>
 
         @if ($errors->any())
             <div class="alert alert-danger">
@@ -148,7 +202,7 @@
 
     @if (!empty($result))
         <section class="content-card p-4 p-md-5 mb-4 result-card">
-            <h2 class="h4 mb-4">Result</h2>
+            <h2 class="h4 mb-4">Prediction Result</h2>
             <div class="row g-3">
                 <div class="col-md-6">
                     <div class="metric-box p-3">
@@ -164,12 +218,8 @@
                 </div>
                 <div class="col-md-6">
                     <div class="metric-box p-3">
-                        <p class="text-muted mb-1">{{ $result['fuel_range']['confidence'] }}% Likely Fuel Range</p>
-                        <p class="h5 mb-0">
-                            {{ number_format($result['fuel_range']['min'], 2) }} L
-                            to
-                            {{ number_format($result['fuel_range']['max'], 2) }} L
-                        </p>
+                        <p class="text-muted mb-1">Likely Fuel Range ({{ $result['fuel_range']['confidence'] }}%)</p>
+                        <p class="h5 mb-0">{{ number_format($result['fuel_range']['min'], 2) }} L to {{ number_format($result['fuel_range']['max'], 2) }} L</p>
                     </div>
                 </div>
                 <div class="col-md-6">
@@ -180,12 +230,12 @@
                 </div>
             </div>
             <div class="mt-4">
-                <h3 class="h6 text-uppercase text-muted">Interpretation</h3>
+                <h3 class="h6 text-uppercase text-muted">Simple Explanation</h3>
                 <p class="mb-0">{{ $result['interpretation'] }}</p>
             </div>
             @if (!empty($result['tips']))
                 <div class="mt-4">
-                    <h3 class="h6 text-uppercase text-muted">Smart Tips</h3>
+                    <h3 class="h6 text-uppercase text-muted">Practical Tips</h3>
                     <ul class="mb-0 ps-3">
                         @foreach ($result['tips'] as $tip)
                             <li>{{ $tip }}</li>
@@ -196,91 +246,54 @@
         </section>
     @endif
 
-    <section class="content-card p-4 p-md-5 mb-4">
-        <h2 class="h4 mb-3">Model Quality</h2>
-        <div class="row g-3">
-            <div class="col-md-4">
-                <div class="coefficient-box">
-                    <strong>R²:</strong> {{ number_format($metrics['r2'] * 100, 2) }}%
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="coefficient-box">
-                    <strong>RMSE:</strong> {{ number_format($metrics['rmse'], 3) }} L
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="coefficient-box">
-                    <strong>MAE:</strong> {{ number_format($metrics['mae'], 3) }} L
-                </div>
-            </div>
-        </div>
-        <p class="text-muted mt-3 mb-0">
-            Higher R² and lower RMSE / MAE generally indicate better fit on the sample dataset.
-        </p>
-    </section>
-
-    <section class="content-card p-4 p-md-5 mb-4">
-        <h2 class="h4 mb-3">Sample Dataset (Hardcoded in PHP)</h2>
-        <p class="text-muted">
-            This dataset is used by the regression model for training. Fuel liters is the target value.
-        </p>
-        <div class="table-responsive">
-            <table class="table table-striped table-bordered align-middle">
-                <thead class="table-light">
-                    <tr>
-                        <th>Distance (km)</th>
-                        <th>Speed (km/h)</th>
-                        <th>Traffic</th>
-                        <th>Vehicle</th>
-                        <th>Fuel Liters (Actual)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach ($dataset as $row)
-                        <tr>
-                            <td>{{ $row['distance'] }}</td>
-                            <td>{{ $row['speed'] }}</td>
-                            <td>{{ $row['traffic'] }}</td>
-                            <td>{{ ucfirst($row['vehicle_type']) }}</td>
-                            <td>{{ number_format($row['fuel_liters'], 2) }}</td>
-                        </tr>
-                    @endforeach
-                </tbody>
-            </table>
-        </div>
-    </section>
-
     <section class="content-card p-4 p-md-5">
-        <h2 class="h4 mb-3">How Linear Regression Works</h2>
-        <p>
-            FuelMate uses multiple linear regression with engineered features:
-        </p>
-        <p class="formula-box">
-            Fuel = b0 + b1(distance) + b2(speed) + b3(traffic) + b4(vehicle_flag)
-            + b5(distance×traffic) + b6(speed×traffic) + b7(distance×vehicle_flag) + b8(traffic×vehicle_flag)
-        </p>
-        <p>
-            The coefficients are computed in PHP using matrix operations and the normal equation:
-            <code>beta = (X^T X)^-1 X^T y</code>.
-            Here, <code>vehicle_flag</code> is <code>0</code> for motorcycle and <code>1</code> for car.
-        </p>
-
-        <div class="row g-3 mt-1">
-            @foreach ($featureLabels as $index => $label)
-                <div class="col-md-6 col-lg-4">
-                    <div class="coefficient-box">
-                        <strong>b{{ $index }} ({{ $label }}):</strong> {{ number_format($coefficients[$index], 6) }}
-                    </div>
-                </div>
-            @endforeach
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <h2 class="h4 mb-0">Trip History</h2>
+            <small class="text-muted">Every prediction is saved here for this browser session.</small>
         </div>
+
+        @if (empty($tripHistory))
+            <div class="empty-state p-4">
+                <p class="mb-0">No trips yet. Submit your first prediction to start building your trip history.</p>
+            </div>
+        @else
+            <div class="table-responsive">
+                <table class="table table-striped table-bordered align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Date</th>
+                            <th>Vehicle</th>
+                            <th>Distance</th>
+                            <th>Speed</th>
+                            <th>Traffic</th>
+                            <th>Fuel Price</th>
+                            <th>Fuel Used</th>
+                            <th>Trip Cost</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($tripHistory as $row)
+                            <tr>
+                                <td>{{ $row['date'] }}</td>
+                                <td>{{ ucfirst($row['vehicle_type']) }}</td>
+                                <td>{{ number_format($row['distance'], 1) }} km</td>
+                                <td>{{ number_format($row['speed'], 1) }} km/h</td>
+                                <td>{{ $row['traffic'] }}</td>
+                                <td>PHP {{ number_format($row['fuel_price'], 2) }}</td>
+                                <td>{{ number_format($row['fuel_liters'], 2) }} L</td>
+                                <td>PHP {{ number_format($row['trip_cost'], 2) }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
     </section>
 </div>
 
 <footer class="footer py-4 mt-4">
     <div class="container text-center">
-        <p class="mb-0">FuelMate | Educational linear regression demo using Laravel Blade and PHP</p>
+        <p class="mb-0">FuelMate | Clean fuel and trip estimate tool with easy-to-read regression logic</p>
     </div>
 </footer>
 @endsection

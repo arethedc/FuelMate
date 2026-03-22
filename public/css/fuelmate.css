@@ -59,6 +59,13 @@ body {
     padding: 0.75rem 0.9rem;
 }
 
+.empty-state {
+    border: 1px dashed #b9d0ec;
+    border-radius: 12px;
+    background: #f8fbff;
+    color: #4a6078;
+}
+
 .btn-primary {
     background-color: var(--fm-primary);
     border-color: var(--fm-primary);
@@ -80,4 +87,3 @@ body {
         font-size: 2rem;
     }
 }
-

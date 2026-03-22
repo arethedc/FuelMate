@@ -9,18 +9,23 @@ use RuntimeException;
 class FuelPredictorController extends Controller
 {
     private const MIN_FUEL_LITERS = 0.1;
+    private const HISTORY_SESSION_KEY = 'fuelmate_trip_history';
+    private const MAX_HISTORY_ITEMS = 30;
 
     public function index(): View
     {
-        $dataset = $this->getTrainingDataset();
-        $model = $this->trainModel($dataset);
+        $defaultVehicle = 'motorcycle';
+        $model = $this->trainModel($defaultVehicle);
 
         return view('home', [
-            'dataset' => $dataset,
-            'coefficients' => $model['coefficients'],
-            'featureLabels' => $this->getFeatureLabels(),
-            'metrics' => $model['metrics'],
             'result' => null,
+            'tripHistory' => session()->get(self::HISTORY_SESSION_KEY, []),
+            'modelInfo' => [
+                'vehicle_type' => $defaultVehicle,
+                'coefficients' => $model['coefficients'],
+                'metrics' => $model['metrics'],
+                'feature_labels' => $this->getFeatureLabels(),
+            ],
         ]);
     }
 
@@ -54,35 +59,44 @@ class FuelPredictorController extends Controller
             ]
         );
 
-        $dataset = $this->getTrainingDataset();
-        $model = $this->trainModel($dataset);
+        $vehicleType = $validated['vehicle_type'];
+        $distance = (float) $validated['distance'];
+        $speed = (float) $validated['speed'];
+        $traffic = (int) $validated['traffic'];
+        $fuelPrice = (float) $validated['fuel_price'];
+
+        $model = $this->trainModel($vehicleType);
         $coefficients = $model['coefficients'];
-        $features = $this->buildFeatureVector(
-            (float) $validated['distance'],
-            (float) $validated['speed'],
-            (int) $validated['traffic'],
-            $validated['vehicle_type']
-        );
+        $features = $this->buildFeatureVector($distance, $speed, $traffic);
 
         $predictedFuel = max(self::MIN_FUEL_LITERS, $this->predictFuel($coefficients, $features));
-        $predictedCost = $predictedFuel * (float) $validated['fuel_price'];
-        $noveltyScore = $this->calculateNoveltyScore(
-            [
-                'distance' => (float) $validated['distance'],
-                'speed' => (float) $validated['speed'],
-                'traffic' => (float) $validated['traffic'],
-                'vehicle_flag' => $validated['vehicle_type'] === 'car' ? 1.0 : 0.0,
-            ],
-            $model['featureStats']
-        );
-        $fuelRange = $this->buildConfidenceInterval($predictedFuel, $model['metrics']['rmse'], $noveltyScore);
-        $efficiency = (float) $validated['distance'] / max($predictedFuel, self::MIN_FUEL_LITERS);
+        $predictedCost = $predictedFuel * $fuelPrice;
+        $efficiency = $distance / max($predictedFuel, self::MIN_FUEL_LITERS);
+        $fuelRange = $this->buildPredictionRange($predictedFuel, $model['metrics']['rmse'], $traffic);
+
+        $history = session()->get(self::HISTORY_SESSION_KEY, []);
+        array_unshift($history, [
+            'date' => now()->format('Y-m-d H:i'),
+            'vehicle_type' => $vehicleType,
+            'distance' => $distance,
+            'speed' => $speed,
+            'traffic' => $traffic,
+            'fuel_price' => $fuelPrice,
+            'fuel_liters' => $predictedFuel,
+            'trip_cost' => $predictedCost,
+        ]);
+
+        $history = array_slice($history, 0, self::MAX_HISTORY_ITEMS);
+        session()->put(self::HISTORY_SESSION_KEY, $history);
 
         return view('home', [
-            'dataset' => $dataset,
-            'coefficients' => $coefficients,
-            'featureLabels' => $this->getFeatureLabels(),
-            'metrics' => $model['metrics'],
+            'tripHistory' => $history,
+            'modelInfo' => [
+                'vehicle_type' => $vehicleType,
+                'coefficients' => $coefficients,
+                'metrics' => $model['metrics'],
+                'feature_labels' => $this->getFeatureLabels(),
+            ],
             'result' => [
                 'fuel_liters' => $predictedFuel,
                 'trip_cost' => $predictedCost,
@@ -91,70 +105,76 @@ class FuelPredictorController extends Controller
                 'input' => $validated,
                 'interpretation' => $this->buildInterpretation(
                     $predictedFuel,
-                    (float) $validated['distance'],
-                    (int) $validated['traffic'],
-                    $validated['vehicle_type'],
+                    $distance,
+                    $traffic,
+                    $vehicleType,
                     $model['metrics']
                 ),
-                'tips' => $this->buildEfficiencyTips(
-                    (float) $validated['speed'],
-                    (int) $validated['traffic'],
-                    $validated['vehicle_type'],
-                    $efficiency
-                ),
+                'tips' => $this->buildEfficiencyTips($speed, $traffic, $vehicleType, $efficiency),
             ],
         ]);
     }
 
     /**
-     * Hardcoded educational sample records.
-     * Features: distance, speed, traffic, vehicle_type
-     * Target: fuel_liters
+     * Internal training records used by linear regression.
+     * These are not shown in the table. The visible table is prediction history.
      */
-    private function getTrainingDataset(): array
+    private function getReferenceTrips(): array
     {
         return [
-            ['distance' => 18, 'speed' => 45, 'traffic' => 1, 'vehicle_type' => 'motorcycle', 'fuel_liters' => 0.62],
-            ['distance' => 22, 'speed' => 38, 'traffic' => 2, 'vehicle_type' => 'motorcycle', 'fuel_liters' => 0.89],
-            ['distance' => 15, 'speed' => 30, 'traffic' => 3, 'vehicle_type' => 'motorcycle', 'fuel_liters' => 0.88],
-            ['distance' => 42, 'speed' => 60, 'traffic' => 1, 'vehicle_type' => 'motorcycle', 'fuel_liters' => 1.30],
-            ['distance' => 55, 'speed' => 50, 'traffic' => 2, 'vehicle_type' => 'motorcycle', 'fuel_liters' => 1.95],
-            ['distance' => 35, 'speed' => 28, 'traffic' => 3, 'vehicle_type' => 'motorcycle', 'fuel_liters' => 1.85],
-            ['distance' => 25, 'speed' => 42, 'traffic' => 1, 'vehicle_type' => 'car', 'fuel_liters' => 2.25],
-            ['distance' => 30, 'speed' => 35, 'traffic' => 2, 'vehicle_type' => 'car', 'fuel_liters' => 3.20],
-            ['distance' => 28, 'speed' => 26, 'traffic' => 3, 'vehicle_type' => 'car', 'fuel_liters' => 3.55],
-            ['distance' => 70, 'speed' => 65, 'traffic' => 1, 'vehicle_type' => 'car', 'fuel_liters' => 5.35],
-            ['distance' => 80, 'speed' => 52, 'traffic' => 2, 'vehicle_type' => 'car', 'fuel_liters' => 6.55],
-            ['distance' => 65, 'speed' => 33, 'traffic' => 3, 'vehicle_type' => 'car', 'fuel_liters' => 7.00],
-            ['distance' => 90, 'speed' => 62, 'traffic' => 1, 'vehicle_type' => 'car', 'fuel_liters' => 6.70],
-            ['distance' => 48, 'speed' => 46, 'traffic' => 2, 'vehicle_type' => 'car', 'fuel_liters' => 4.20],
-            ['distance' => 40, 'speed' => 40, 'traffic' => 2, 'vehicle_type' => 'motorcycle', 'fuel_liters' => 1.42],
-            ['distance' => 52, 'speed' => 34, 'traffic' => 3, 'vehicle_type' => 'motorcycle', 'fuel_liters' => 2.45],
+            ['vehicle_type' => 'motorcycle', 'distance' => 8, 'speed' => 25, 'traffic' => 3, 'fuel_liters' => 0.42],
+            ['vehicle_type' => 'motorcycle', 'distance' => 12, 'speed' => 35, 'traffic' => 2, 'fuel_liters' => 0.43],
+            ['vehicle_type' => 'motorcycle', 'distance' => 18, 'speed' => 40, 'traffic' => 2, 'fuel_liters' => 0.63],
+            ['vehicle_type' => 'motorcycle', 'distance' => 22, 'speed' => 50, 'traffic' => 1, 'fuel_liters' => 0.69],
+            ['vehicle_type' => 'motorcycle', 'distance' => 30, 'speed' => 55, 'traffic' => 1, 'fuel_liters' => 0.87],
+            ['vehicle_type' => 'motorcycle', 'distance' => 35, 'speed' => 45, 'traffic' => 2, 'fuel_liters' => 1.08],
+            ['vehicle_type' => 'motorcycle', 'distance' => 42, 'speed' => 38, 'traffic' => 3, 'fuel_liters' => 1.52],
+            ['vehicle_type' => 'motorcycle', 'distance' => 50, 'speed' => 48, 'traffic' => 2, 'fuel_liters' => 1.51],
+            ['vehicle_type' => 'motorcycle', 'distance' => 65, 'speed' => 60, 'traffic' => 1, 'fuel_liters' => 1.78],
+            ['vehicle_type' => 'motorcycle', 'distance' => 75, 'speed' => 52, 'traffic' => 2, 'fuel_liters' => 2.21],
+            ['vehicle_type' => 'motorcycle', 'distance' => 85, 'speed' => 40, 'traffic' => 3, 'fuel_liters' => 2.92],
+            ['vehicle_type' => 'motorcycle', 'distance' => 95, 'speed' => 58, 'traffic' => 1, 'fuel_liters' => 2.58],
+            ['vehicle_type' => 'car', 'distance' => 8, 'speed' => 25, 'traffic' => 3, 'fuel_liters' => 0.95],
+            ['vehicle_type' => 'car', 'distance' => 12, 'speed' => 35, 'traffic' => 2, 'fuel_liters' => 1.01],
+            ['vehicle_type' => 'car', 'distance' => 18, 'speed' => 40, 'traffic' => 2, 'fuel_liters' => 1.39],
+            ['vehicle_type' => 'car', 'distance' => 22, 'speed' => 50, 'traffic' => 1, 'fuel_liters' => 1.50],
+            ['vehicle_type' => 'car', 'distance' => 30, 'speed' => 55, 'traffic' => 1, 'fuel_liters' => 1.98],
+            ['vehicle_type' => 'car', 'distance' => 35, 'speed' => 45, 'traffic' => 2, 'fuel_liters' => 2.50],
+            ['vehicle_type' => 'car', 'distance' => 42, 'speed' => 38, 'traffic' => 3, 'fuel_liters' => 3.17],
+            ['vehicle_type' => 'car', 'distance' => 50, 'speed' => 48, 'traffic' => 2, 'fuel_liters' => 3.34],
+            ['vehicle_type' => 'car', 'distance' => 65, 'speed' => 60, 'traffic' => 1, 'fuel_liters' => 4.11],
+            ['vehicle_type' => 'car', 'distance' => 75, 'speed' => 52, 'traffic' => 2, 'fuel_liters' => 5.12],
+            ['vehicle_type' => 'car', 'distance' => 85, 'speed' => 40, 'traffic' => 3, 'fuel_liters' => 6.36],
+            ['vehicle_type' => 'car', 'distance' => 95, 'speed' => 58, 'traffic' => 1, 'fuel_liters' => 5.80],
         ];
     }
 
     /**
-     * Trains a smarter model using base and interaction terms.
-     * Multiple linear regression via normal equation:
+     * Trains one model per vehicle type using linear regression:
      * beta = (X^T X)^-1 X^T y
      */
-    private function trainModel(array $dataset): array
+    private function trainModel(string $vehicleType): array
     {
+        $rows = array_values(array_filter(
+            $this->getReferenceTrips(),
+            static fn (array $row) => $row['vehicle_type'] === $vehicleType
+        ));
+
         $xRows = [];
         $yValues = [];
 
-        foreach ($dataset as $row) {
+        foreach ($rows as $row) {
             $xRows[] = $this->buildFeatureVector(
                 (float) $row['distance'],
                 (float) $row['speed'],
-                (int) $row['traffic'],
-                $row['vehicle_type']
+                (int) $row['traffic']
             );
             $yValues[] = (float) $row['fuel_liters'];
         }
 
         $coefficients = $this->computeRegressionCoefficients($xRows, $yValues);
         $predicted = [];
+
         foreach ($xRows as $features) {
             $predicted[] = $this->predictFuel($coefficients, $features);
         }
@@ -162,48 +182,25 @@ class FuelPredictorController extends Controller
         return [
             'coefficients' => $coefficients,
             'metrics' => $this->computeModelMetrics($yValues, $predicted),
-            'featureStats' => $this->computeFeatureStats($dataset),
         ];
     }
 
     /**
-     * Feature vector with interaction terms for better real-world behavior.
+     * Simple and stable feature vector used for prediction.
      */
-    private function buildFeatureVector(
-        float $distance,
-        float $speed,
-        int $traffic,
-        string $vehicleType
-    ): array {
-        $vehicleFlag = $vehicleType === 'car' ? 1.0 : 0.0;
-        $trafficValue = (float) $traffic;
-
+    private function buildFeatureVector(float $distance, float $speed, int $traffic): array
+    {
         return [
-            1.0,                          // b0
-            $distance,                    // b1
-            $speed,                       // b2
-            $trafficValue,                // b3
-            $vehicleFlag,                 // b4
-            $distance * $trafficValue,    // b5 (distance x traffic)
-            $speed * $trafficValue,       // b6 (speed x traffic)
-            $distance * $vehicleFlag,     // b7 (distance x vehicle)
-            $trafficValue * $vehicleFlag, // b8 (traffic x vehicle)
+            1.0,              // intercept
+            $distance,        // distance
+            $speed,           // average speed
+            (float) $traffic, // traffic level
         ];
     }
 
     private function getFeatureLabels(): array
     {
-        return [
-            'Intercept',
-            'Distance',
-            'Speed',
-            'Traffic',
-            'Vehicle Flag',
-            'Distance x Traffic',
-            'Speed x Traffic',
-            'Distance x Vehicle',
-            'Traffic x Vehicle',
-        ];
+        return ['Intercept', 'Distance', 'Speed', 'Traffic'];
     }
 
     private function computeRegressionCoefficients(array $xRows, array $yValues): array
@@ -212,8 +209,8 @@ class FuelPredictorController extends Controller
         $xTranspose = $this->transpose($xRows);
         $xTx = $this->multiplyMatrices($xTranspose, $xRows);
 
-        // Light regularization stabilizes inversion on a small educational dataset.
-        $lambda = 0.0001;
+        // Light regularization stabilizes inversion on smaller datasets.
+        $lambda = 0.001;
         for ($i = 0; $i < count($xTx); $i++) {
             $xTx[$i][$i] += $lambda;
         }
@@ -266,68 +263,10 @@ class FuelPredictorController extends Controller
         ];
     }
 
-    private function computeFeatureStats(array $dataset): array
+    private function buildPredictionRange(float $prediction, float $rmse, int $traffic): array
     {
-        $distance = [];
-        $speed = [];
-        $traffic = [];
-        $vehicleFlag = [];
-
-        foreach ($dataset as $row) {
-            $distance[] = (float) $row['distance'];
-            $speed[] = (float) $row['speed'];
-            $traffic[] = (float) $row['traffic'];
-            $vehicleFlag[] = $row['vehicle_type'] === 'car' ? 1.0 : 0.0;
-        }
-
-        return [
-            'distance' => $this->calculateMeanAndStd($distance),
-            'speed' => $this->calculateMeanAndStd($speed),
-            'traffic' => $this->calculateMeanAndStd($traffic),
-            'vehicle_flag' => $this->calculateMeanAndStd($vehicleFlag),
-        ];
-    }
-
-    private function calculateMeanAndStd(array $values): array
-    {
-        $n = count($values);
-        if ($n === 0) {
-            return ['mean' => 0.0, 'std' => 1.0];
-        }
-
-        $mean = array_sum($values) / $n;
-        $varianceSum = 0.0;
-        foreach ($values as $value) {
-            $varianceSum += ($value - $mean) ** 2;
-        }
-        $std = sqrt($varianceSum / max(1, $n - 1));
-
-        return [
-            'mean' => $mean,
-            'std' => max($std, 1e-6),
-        ];
-    }
-
-    private function calculateNoveltyScore(array $input, array $featureStats): float
-    {
-        $zScores = [];
-
-        foreach ($input as $feature => $value) {
-            $stats = $featureStats[$feature] ?? ['mean' => 0.0, 'std' => 1.0];
-            $zScores[] = abs(($value - $stats['mean']) / $stats['std']);
-        }
-
-        if (empty($zScores)) {
-            return 0.0;
-        }
-
-        return array_sum($zScores) / count($zScores);
-    }
-
-    private function buildConfidenceInterval(float $prediction, float $rmse, float $noveltyScore): array
-    {
-        $uncertaintyBoost = 1 + min(1.5, $noveltyScore / 3);
-        $margin = 1.96 * max($rmse, 0.05) * $uncertaintyBoost;
+        $trafficUncertainty = ($traffic - 1) * 0.06;
+        $margin = max(0.08, (1.65 * $rmse) + $trafficUncertainty);
 
         $min = max(self::MIN_FUEL_LITERS, $prediction - $margin);
         $max = max($min, $prediction + $margin);
@@ -335,7 +274,7 @@ class FuelPredictorController extends Controller
         return [
             'min' => $min,
             'max' => $max,
-            'confidence' => 95,
+            'confidence' => 90,
         ];
     }
 
@@ -347,32 +286,16 @@ class FuelPredictorController extends Controller
         array $metrics
     ): string {
         $efficiency = $distance / max($predictedFuel, self::MIN_FUEL_LITERS);
-
-        $trafficText = match ($traffic) {
-            1 => 'light traffic',
-            2 => 'moderate traffic',
-            default => 'heavy traffic',
-        };
-
         $vehicleLabel = $vehicleType === 'car' ? 'car' : 'motorcycle';
 
-        if ($efficiency >= 20) {
-            $efficiencyMessage = 'high fuel efficiency for this trip.';
-        } elseif ($efficiency >= 12) {
-            $efficiencyMessage = 'average fuel efficiency for this trip.';
-        } else {
-            $efficiencyMessage = 'lower fuel efficiency, likely due to slower speed or heavier traffic.';
-        }
-
-        return 'For this ' . $vehicleLabel . ' trip under ' . $trafficText . ', the model estimates about '
-            . number_format($predictedFuel, 2)
-            . ' L of fuel use (' . number_format($efficiency, 2) . ' km/L), which indicates '
-            . $efficiencyMessage
-            . ' Model fit on sample data: R² '
+        return 'For a ' . number_format($distance, 0) . ' km ' . $vehicleLabel . ' trip in '
+            . $this->trafficLabel($traffic)
+            . ', the estimate is ' . number_format($predictedFuel, 2)
+            . ' liters (about ' . number_format($efficiency, 2)
+            . ' km/L). Model fit on reference trips: R2 '
             . number_format($metrics['r2'] * 100, 1)
-            . '% and RMSE '
-            . number_format($metrics['rmse'], 2)
-            . ' L.';
+            . '%, average error around ' . number_format($metrics['rmse'], 2)
+            . ' liters.';
     }
 
     private function buildEfficiencyTips(
@@ -384,26 +307,35 @@ class FuelPredictorController extends Controller
         $tips = [];
 
         if ($traffic === 3) {
-            $tips[] = 'Heavy traffic raises fuel use. If possible, travel during off-peak hours.';
+            $tips[] = 'Heavy traffic usually increases fuel use. If possible, avoid rush hour.';
         }
 
         if ($speed < 35) {
-            $tips[] = 'Very low average speed can increase fuel consumption due to stop-and-go patterns.';
+            $tips[] = 'Very low average speed often means stop-and-go driving, which burns more fuel.';
         } elseif ($speed > 90) {
-            $tips[] = 'High speed increases drag and fuel burn. A steadier moderate speed can reduce cost.';
+            $tips[] = 'Fuel burn rises at high speeds. A steadier moderate speed is usually cheaper.';
         }
 
         if ($vehicleType === 'car') {
-            $tips[] = 'For cars, smooth acceleration and proper tire pressure can noticeably improve efficiency.';
+            $tips[] = 'For cars, smooth acceleration and proper tire pressure help reduce fuel cost.';
         } else {
-            $tips[] = 'For motorcycles, avoid aggressive throttle changes to improve km/L on city trips.';
+            $tips[] = 'For motorcycles, gentler throttle control helps improve km/L in city driving.';
         }
 
         if ($efficiency < 10) {
-            $tips[] = 'This trip is currently fuel-intensive. Consider route optimization or less congested roads.';
+            $tips[] = 'This trip is fuel-intensive. A less congested route can lower your cost.';
         }
 
         return $tips;
+    }
+
+    private function trafficLabel(int $traffic): string
+    {
+        return match ($traffic) {
+            1 => 'light traffic',
+            2 => 'moderate traffic',
+            default => 'heavy traffic',
+        };
     }
 
     private function transpose(array $matrix): array
