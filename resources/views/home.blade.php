@@ -49,57 +49,75 @@
 
     <section class="content-card p-4 p-md-5 mb-4">
         <h2 class="h4 mb-3">How Linear Regression Is Used</h2>
+        @php
+            $consistencyScore = $modelInfo['metrics']['r2'] * 100;
+            $typicalError = $modelInfo['metrics']['rmse'];
+            $consistencyLabel = $consistencyScore >= 90 ? 'High' : ($consistencyScore >= 75 ? 'Good' : 'Moderate');
+        @endphp
+
+        <p class="mb-3">
+            FuelMate looks at past trip patterns, then estimates your fuel use based on your distance, speed, and traffic level.
+            It does not guess randomly. It follows a consistent formula and updates the estimate from your inputs.
+        </p>
+
         <div class="row g-3 mb-3">
             <div class="col-md-4">
                 <div class="coefficient-box h-100">
                     <strong>Step 1</strong>
-                    <p class="mb-0 mt-2">Reference trips are used to train the model for each vehicle type.</p>
+                    <p class="mb-0 mt-2">Past trip records teach the model how fuel changes in real driving.</p>
                 </div>
             </div>
             <div class="col-md-4">
                 <div class="coefficient-box h-100">
                     <strong>Step 2</strong>
-                    <p class="mb-0 mt-2">The model learns coefficients for distance, speed, and traffic.</p>
+                    <p class="mb-0 mt-2">It learns how much each factor (distance, speed, traffic) affects fuel use.</p>
                 </div>
             </div>
             <div class="col-md-4">
                 <div class="coefficient-box h-100">
                     <strong>Step 3</strong>
-                    <p class="mb-0 mt-2">Your inputs are applied to the equation to produce the trip estimate.</p>
+                    <p class="mb-0 mt-2">Your trip values are applied to that pattern to produce your estimate.</p>
                 </div>
             </div>
         </div>
 
         <p class="formula-box mb-3">
-            Fuel = b0 + b1(distance) + b2(speed) + b3(traffic)
+            Estimated Fuel = Base + (Distance Effect) + (Speed Effect) + (Traffic Effect)
         </p>
 
-        <p class="text-muted mb-2">
-            Current model shown for: <strong>{{ ucfirst($activeVehicle) }}</strong>
+        <p class="mb-2">
+            Current vehicle model: <strong>{{ ucfirst($activeVehicle) }}</strong>
+        </p>
+        <p class="mb-2">
+            Prediction consistency: <strong>{{ $consistencyLabel }}</strong>
+            ({{ number_format($consistencyScore, 1) }}%)
+        </p>
+        <p class="mb-0 text-muted">
+            Typical difference from real trips: about <strong>{{ number_format($typicalError, 2) }} liters</strong>.
         </p>
 
-        <div class="row g-3">
-            @foreach ($modelInfo['feature_labels'] as $index => $label)
-                <div class="col-md-6 col-lg-3">
-                    <div class="coefficient-box">
-                        <strong>{{ $label }}:</strong><br>
-                        {{ number_format($modelInfo['coefficients'][$index], 6) }}
+        <details class="mt-3">
+            <summary class="text-primary fw-semibold">Show technical details</summary>
+            <div class="row g-3 mt-1">
+                @foreach ($modelInfo['feature_labels'] as $index => $label)
+                    <div class="col-md-6 col-lg-3">
+                        <div class="coefficient-box">
+                            <strong>{{ $label }}:</strong><br>
+                            {{ number_format($modelInfo['coefficients'][$index], 6) }}
+                        </div>
                     </div>
+                @endforeach
+                <div class="col-md-4">
+                    <div class="coefficient-box"><strong>R2:</strong> {{ number_format($modelInfo['metrics']['r2'] * 100, 2) }}%</div>
                 </div>
-            @endforeach
-        </div>
-
-        <div class="row g-3 mt-1">
-            <div class="col-md-4">
-                <div class="coefficient-box"><strong>R2:</strong> {{ number_format($modelInfo['metrics']['r2'] * 100, 2) }}%</div>
+                <div class="col-md-4">
+                    <div class="coefficient-box"><strong>RMSE:</strong> {{ number_format($modelInfo['metrics']['rmse'], 3) }} L</div>
+                </div>
+                <div class="col-md-4">
+                    <div class="coefficient-box"><strong>MAE:</strong> {{ number_format($modelInfo['metrics']['mae'], 3) }} L</div>
+                </div>
             </div>
-            <div class="col-md-4">
-                <div class="coefficient-box"><strong>RMSE:</strong> {{ number_format($modelInfo['metrics']['rmse'], 3) }} L</div>
-            </div>
-            <div class="col-md-4">
-                <div class="coefficient-box"><strong>MAE:</strong> {{ number_format($modelInfo['metrics']['mae'], 3) }} L</div>
-            </div>
-        </div>
+        </details>
     </section>
 
     <section class="content-card p-4 p-md-5 mb-4">
